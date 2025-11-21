@@ -1,0 +1,17 @@
+.git
+.github
+.gitignore
+compose/config/*.json
+compose/config/*.yml
+compose/config/*.yaml
+compose/config/*.toml
+compose/config/*.ini
+compose/config/*.conf
+compose/config/*.cfg
+compose/cache
+node_modules
+dist
+tmp
+*.log
+*.tmp
+.DS_Store

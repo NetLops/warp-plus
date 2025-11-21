@@ -44,6 +44,18 @@ FLAGS
       --version            displays version number
 ```
 
+### Docker Compose
+
+Warp-Plus now ships with a Dockerfile and `docker-compose.yml` for local deployments.
+
+```
+cp example_config.json compose/config/warp-plus.json
+# edit compose/config/warp-plus.json and add your key / options
+docker compose up -d --build
+```
+
+The compose setup mounts `compose/config` inside the container as read-only config, persists identities and cache data inside the named `warp-plus-cache` volume, and publishes the SOCKS5 proxy on `127.0.0.1:8086`. Update the `command` section in `docker-compose.yml` (or override it at runtime) to pass different flags, enable psiphon/gool modes, or point at another config file. Shut down with `docker compose down` when you are done.
+
 ### Country Codes for Psiphon
 
 - Austria (AT)

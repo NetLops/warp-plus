@@ -5,3 +5,5 @@
 .idea
 stuff/
 .DS_Store
+compose/config/*
+!compose/config/.gitkeep
