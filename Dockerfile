@@ -19,7 +19,7 @@ LABEL org.opencontainers.image.title="warp-plus"
 LABEL org.opencontainers.image.source="https://github.com/bepass-org/warp-plus"
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates && \
+    apt-get install -y --no-install-recommends ca-certificates libcap2-bin && \
     rm -rf /var/lib/apt/lists/*
 
 ENV HOME=/var/lib/warp-plus
@@ -32,6 +32,7 @@ RUN useradd --system --home-dir /var/lib/warp-plus --shell /usr/sbin/nologin war
     chown -R warp:warp /var/lib/warp-plus
 
 COPY --from=builder /out/warp-plus /usr/local/bin/warp-plus
+RUN setcap 'cap_net_admin,cap_net_raw=eip' /usr/local/bin/warp-plus
 
 USER warp
 VOLUME ["/var/lib/warp-plus"]
