@@ -205,10 +205,12 @@ func (c *rootConfig) exec(ctx context.Context, args []string) error {
 	}
 
 	// Load proxy pool configuration if config file is specified
+	// Note: We load this separately because ff doesn't support nested JSON structures
 	if c.config != "" {
 		poolConfig, err := wiresocks.LoadProxyPoolConfig(c.config)
 		if err != nil {
-			l.Warn("failed to load proxy pool config", "error", err)
+			// Only warn if it's not a "file not found" or "no proxy_pool section" error
+			l.Debug("proxy pool config not loaded", "error", err)
 		} else if poolConfig != nil && poolConfig.Enabled {
 			l.Info("proxy pool mode enabled",
 				"proxy_count", len(poolConfig.Proxies),
