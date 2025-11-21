@@ -16,6 +16,9 @@ services:
       - warp-plus-cache:/var/lib/warp-plus
     environment:
       - WARP_PLUS_CACHE_DIR=/var/lib/warp-plus
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
 
 volumes:
   warp-plus-cache: {}
