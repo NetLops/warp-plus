@@ -34,7 +34,6 @@ RUN useradd --system --home-dir /var/lib/warp-plus --shell /usr/sbin/nologin war
 COPY --from=builder /out/warp-plus /usr/local/bin/warp-plus
 RUN setcap 'cap_net_admin,cap_net_raw=eip' /usr/local/bin/warp-plus
 
-USER warp
 VOLUME ["/var/lib/warp-plus"]
 EXPOSE 8086/tcp
 
