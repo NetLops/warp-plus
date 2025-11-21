@@ -1,0 +1,19 @@
+{
+  "verbose": true,
+  "bind": "127.0.0.1:18086",
+  "endpoint": "",
+  "key": "",
+  "dns": "1.1.1.1",
+  "gool": false,
+  "cfon": false,
+  "country": "DE",
+  "scan": false,
+  "rtt": "1000ms",
+  "cache-dir": "",
+  "fwmark": "0",
+  "wgconf": "",
+  "reserved": "",
+  "test-url": "",
+  "4": true,
+  "6": false
+}

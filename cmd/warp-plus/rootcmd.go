@@ -204,6 +204,19 @@ func (c *rootConfig) exec(ctx context.Context, args []string) error {
 		opts.Scan = &wiresocks.ScanOptions{V4: c.v4, V6: c.v6, MaxRTT: c.rtt}
 	}
 
+	// Load proxy pool configuration if config file is specified
+	if c.config != "" {
+		poolConfig, err := wiresocks.LoadProxyPoolConfig(c.config)
+		if err != nil {
+			l.Warn("failed to load proxy pool config", "error", err)
+		} else if poolConfig != nil && poolConfig.Enabled {
+			l.Info("proxy pool mode enabled",
+				"proxy_count", len(poolConfig.Proxies),
+				"strategy", poolConfig.Strategy)
+			opts.ProxyPoolConfig = poolConfig
+		}
+	}
+
 	go func() {
 		if err := app.RunWarp(ctx, l, opts); err != nil {
 			fatal(l, err)

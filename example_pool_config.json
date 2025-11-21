@@ -1,5 +1,5 @@
 {
-  "verbose": false,
+  "verbose": true,
   "bind": "127.0.0.1:8086",
   "endpoint": "",
   "key": "",
@@ -7,7 +7,7 @@
   "gool": false,
   "cfon": false,
   "country": "DE",
-  "scan": true,
+  "scan": false,
   "rtt": "1000ms",
   "cache-dir": "",
   "fwmark": "0x1375",
@@ -17,7 +17,7 @@
   "4": true,
   "6": true,
   "proxy_pool": {
-    "enabled": false,
+    "enabled": true,
     "strategy": "round-robin",
     "health_check_interval": "30s",
     "health_check_timeout": "5s",
@@ -26,15 +26,21 @@
     "proxies": [
       {
         "bind": "127.0.0.1:8087",
-        "endpoint": "",
+        "endpoint": "162.159.192.1:500",
         "weight": 1,
         "max_connections": 1000
       },
       {
         "bind": "127.0.0.1:8088",
-        "endpoint": "",
+        "endpoint": "162.159.192.2:500",
         "weight": 1,
         "max_connections": 1000
+      },
+      {
+        "bind": "127.0.0.1:8089",
+        "endpoint": "162.159.192.3:500",
+        "weight": 2,
+        "max_connections": 2000
       }
     ]
   }

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"path"
+	"time"
 
 	"github.com/bepass-org/warp-plus/iputils"
 	"github.com/bepass-org/warp-plus/psiphon"
@@ -33,6 +34,7 @@ type WarpOptions struct {
 	WireguardConfig string
 	Reserved        string
 	TestURL         string
+	ProxyPoolConfig *wiresocks.ProxyPoolConfig // Proxy pool configuration
 }
 
 type PsiphonOptions struct {
@@ -96,6 +98,12 @@ func RunWarp(ctx context.Context, l *slog.Logger, opts WarpOptions) error {
 		}
 	}
 	l.Info("using warp endpoints", "endpoints", endpoints)
+
+	// Check if proxy pool is enabled
+	if opts.ProxyPoolConfig != nil && opts.ProxyPoolConfig.Enabled {
+		l.Info("running in proxy pool mode")
+		return runWarpWithProxyPool(ctx, l, opts, endpoints)
+	}
 
 	var warpErr error
 	switch {
@@ -465,4 +473,130 @@ func generateWireguardConfig(i *warp.Identity) wiresocks.Configuration {
 			Reserved: [3]byte{clientID[0], clientID[1], clientID[2]},
 		}},
 	}
+}
+
+// runWarpWithProxyPool runs warp in proxy pool mode with multiple endpoints
+func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions, endpoints []string) error {
+	config := opts.ProxyPoolConfig
+	if config == nil || !config.Enabled {
+		return errors.New("proxy pool not enabled")
+	}
+
+	numProxies := len(config.Proxies)
+	if numProxies == 0 {
+		return errors.New("no proxies configured")
+	}
+
+	l.Info("initializing proxy pool", "proxy_count", numProxies)
+
+	// Create network stacks for each proxy
+	tnets := make([]*netstack.Net, numProxies)
+
+	for i := 0; i < numProxies; i++ {
+		proxyConf := config.Proxies[i]
+
+		// Determine endpoint for this proxy
+		endpoint := opts.Endpoint
+		if proxyConf.Endpoint != "" {
+			endpoint = proxyConf.Endpoint
+		} else if i < len(endpoints) {
+			endpoint = endpoints[i]
+		} else {
+			endpoint = endpoints[0]
+		}
+
+		// Create identity for this proxy
+		identPath := path.Join(opts.CacheDir, fmt.Sprintf("pool-proxy-%d", i))
+		ident, err := warp.LoadOrCreateIdentity(l, identPath, opts.License)
+		if err != nil {
+			l.Error("couldn't load proxy identity", "proxy_index", i, "error", err)
+			return err
+		}
+
+		conf := generateWireguardConfig(ident)
+
+		// Set up MTU
+		conf.Interface.MTU = singleMTU
+		// Set up DNS Address
+		conf.Interface.DNS = []netip.Addr{opts.DnsAddr}
+
+		// Configure peer
+		for j, peer := range conf.Peers {
+			peer.Endpoint = endpoint
+			peer.Trick = true
+			peer.KeepAlive = 5
+
+			if opts.Reserved != "" {
+				r, err := wiresocks.ParseReserved(opts.Reserved)
+				if err != nil {
+					return err
+				}
+				peer.Reserved = r
+			}
+
+			conf.Peers[j] = peer
+		}
+
+		// Establish wireguard on userspace stack
+		var werr error
+		var tnet *netstack.Net
+		var tunDev tun.Device
+		for _, t := range []string{"t1", "t2"} {
+			tunDev, tnet, werr = netstack.CreateNetTUN(conf.Interface.Addresses, conf.Interface.DNS, conf.Interface.MTU)
+			if werr != nil {
+				continue
+			}
+
+			werr = establishWireguard(l.With("proxy_index", i), &conf, tunDev, opts.FwMark, t)
+			if werr != nil {
+				continue
+			}
+
+			// Test wireguard connectivity
+			werr = usermodeTunTest(ctx, l, tnet, opts.TestURL)
+			if werr != nil {
+				continue
+			}
+			break
+		}
+
+		if werr != nil {
+			return fmt.Errorf("failed to establish wireguard for proxy %d: %w", i, werr)
+		}
+
+		tnets[i] = tnet
+		l.Info("wireguard tunnel established for proxy", "proxy_index", i, "endpoint", endpoint)
+	}
+
+	// Start the proxy pool
+	pool, err := wiresocks.StartProxyPool(ctx, l, config, tnets)
+	if err != nil {
+		return fmt.Errorf("failed to start proxy pool: %w", err)
+	}
+
+	// Log pool statistics periodically
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				stats := pool.GetStats()
+				l.Info("proxy pool stats",
+					"total_proxies", stats.TotalProxies,
+					"healthy_proxies", stats.HealthyProxies,
+					"active_connections", stats.ActiveConns,
+					"total_connections", stats.TotalConns,
+					"total_errors", stats.TotalErrors,
+					"error_rate", fmt.Sprintf("%.2f%%", stats.ErrorRate()*100),
+				)
+			}
+		}
+	}()
+
+	l.Info("proxy pool is ready")
+	return nil
 }

@@ -8,6 +8,7 @@ Warp-Plus is an open-source implementation of Cloudflare's Warp, enhanced with P
 - **Psiphon Chaining**: Integrates with Psiphon for censorship circumvention, allowing seamless access to the internet in restrictive environments.
 - **Warp in Warp Chaining**: Chaning two instances of warp together to bypass location restrictions.
 - **SOCKS5 Proxy Support**: Includes a SOCKS5 proxy for secure and private browsing.
+- **Proxy Pool**: Support for massive IP proxy pools with load balancing, health checks, and automatic failover.
 
 ## Getting Started
 
@@ -107,6 +108,33 @@ bash <(curl -fsSL https://raw.githubusercontent.com/bepass-org/warp-plus/master/
 - `warp --cfon --country US`
 - برای اسکن ای پی سالم وارپ از دستور `warp --scan` استفاده کنید. 
 - برای ترکیب (chain) دو کانفیگ برای تغییر لوکیشن از دستور `warp --gool` استفاده کنید. 
+
+## Proxy Pool
+
+Warp-Plus supports a powerful proxy pool feature for managing massive IP proxies with load balancing and health checks.
+
+See [PROXY_POOL.md](PROXY_POOL.md) for detailed documentation.
+
+**Quick Start:**
+
+```bash
+# Copy example config
+cp example_pool_config.json my_config.json
+
+# Edit config to enable proxy pool
+# Set "enabled": true in proxy_pool section
+
+# Run with proxy pool
+./warp-plus --config my_config.json
+```
+
+**Features:**
+- Multiple load balancing strategies (round-robin, least-connections, random, weighted)
+- Automatic health checking and failover
+- Per-proxy statistics and monitoring
+- Support for thousands of proxies
+
+For full configuration options and usage examples, see [PROXY_POOL.md](PROXY_POOL.md).
 
 ## Acknowledgements
 
