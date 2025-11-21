@@ -54,7 +54,7 @@ cp example_config.json compose/config/warp-plus.json
 docker compose up -d --build
 ```
 
-The compose setup mounts `compose/config` inside the container as read-only config, persists identities and cache data inside the named `warp-plus-cache` volume, and publishes the SOCKS5 proxy on `127.0.0.1:8086`. Warp's userspace WireGuard stack needs `CAP_NET_ADMIN`/`CAP_NET_RAW` while running as root to manage fwmarks and UDP sockets, so the default compose service adds those capabilities (or run the container with `--cap-add NET_ADMIN --cap-add NET_RAW` if you start it manually). Update the `command` section in `docker-compose.yml` (or override it at runtime) to pass different flags, enable psiphon/gool modes, or point at another config file. Shut down with `docker compose down` when you are done.
+The compose setup mounts `compose/config` inside the container as read-only config, persists identities and cache data inside the named `warp-plus-cache` volume, and publishes the SOCKS5 proxy on `127.0.0.1:8086`. Warp's userspace WireGuard stack needs `CAP_NET_ADMIN`/`CAP_NET_RAW` while running as root to manage fwmarks and UDP sockets, so the default compose service adds those capabilities (or run the container with `--cap-add NET_ADMIN --cap-add NET_RAW` if you start it manually). The container command also sets `--test-url=` to skip the built-in connectivity probe (some restricted networks block the default URL); remove that flag or point it elsewhere if you want the check to run. Update the `command` section in `docker-compose.yml` (or override it at runtime) to pass different flags, enable psiphon/gool modes, or point at another config file. Shut down with `docker compose down` when you are done.
 
 ### Country Codes for Psiphon
 

@@ -18,6 +18,11 @@ import (
 )
 
 func usermodeTunTest(ctx context.Context, l *slog.Logger, tnet *netstack.Net, url string) error {
+	if strings.TrimSpace(url) == "" {
+		l.Info("connection test skipped")
+		return nil
+	}
+
 	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(5*time.Second))
 	defer cancel()
 
@@ -34,11 +39,11 @@ func usermodeTunTest(ctx context.Context, l *slog.Logger, tnet *netstack.Net, ur
 		}}
 		resp, err := client.Head(url)
 		if err != nil {
-			l.Error("connection test failed")
+			l.Error("connection test failed", "error", err)
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
-			l.Error("connection test failed")
+			l.Error("connection test failed", "status", resp.StatusCode)
 			continue
 		}
 
