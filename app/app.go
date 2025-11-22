@@ -374,11 +374,11 @@ func runWarpInWarp(ctx context.Context, l *slog.Logger, opts WarpOptions, endpoi
 		return err
 	}
 
-	_, cancel, err := wiresocks.StartProxy(ctx, l, tnet2, opts.Bind)
+	_, cleanup, err := wiresocks.StartProxy(ctx, l, tnet2, opts.Bind)
 	if err != nil {
 		return err
 	}
-	defer cancel()
+	defer cleanup()
 
 	l.Info("serving proxy", "address", opts.Bind)
 	return nil
@@ -445,11 +445,11 @@ func runWarpWithPsiphon(ctx context.Context, l *slog.Logger, opts WarpOptions, e
 
 	// Run a proxy on the userspace stack
 	// Run a proxy on the userspace stack
-	warpBind, cancel, err := wiresocks.StartProxy(ctx, l, tnet, netip.MustParseAddrPort("127.0.0.1:0"))
+	warpBind, cleanup, err := wiresocks.StartProxy(ctx, l, tnet, netip.MustParseAddrPort("127.0.0.1:0"))
 	if err != nil {
 		return err
 	}
-	defer cancel()
+	defer cleanup()
 
 	// run psiphon
 	err = psiphon.RunPsiphon(ctx, l.With("subsystem", "psiphon"), warpBind, opts.CacheDir, opts.Bind, opts.Psiphon.Country)
@@ -725,9 +725,14 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 		}
 
 		// 2. Update pool with new stack
-		// We need to find the old proxy instance and replace it or update it
-		// Since StartProxyPool creates instances, we need a way to update them
-		// For now, we'll remove the old one and add a new one
+		// We need to remove the old proxy instance to ensure its listener is closed
+		// and resources are released BEFORE we try to bind to the same port.
+
+		// Remove old proxy (this calls the cleanup function we set in StartProxy)
+		oldProxyID := fmt.Sprintf("proxy-%d", index)
+		if err := pool.RemoveProxy(oldProxyID); err != nil {
+			l.Warn("failed to remove old proxy during rebuild (might not exist)", "id", oldProxyID, "error", err)
+		}
 
 		proxyConf := config.Proxies[index]
 		bindAddr, err := netip.ParseAddrPort(proxyConf.Bind)
@@ -739,29 +744,33 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 		id := fmt.Sprintf("proxy-%d", index)
 
 		// Start new proxy listener
-		go func() {
-			// Wait a bit for old port to release if needed
-			time.Sleep(100 * time.Millisecond)
+		// We don't need to run this in a goroutine anymore because we've already cleaned up the old one
+		// and we want to ensure it starts successfully before returning.
 
-			_, cancel, err := wiresocks.StartProxy(ctx, l, tnet, bindAddr)
-			if err != nil {
-				l.Error("failed to start proxy listener during rebuild", "error", err)
-				return
-			}
+		// Wait a tiny bit to ensure OS releases the port (though Close() should be enough)
+		time.Sleep(10 * time.Millisecond)
 
-			// Create new instance with the cancel function
-			newInstance := wiresocks.NewProxyInstance(
-				id,
-				index,
-				bindAddr,
-				tnet,
-				proxyConf.GetWeight(),
-				proxyConf.GetMaxConnections(config.MaxConnectionsPerProxy),
-				cancel,
-			)
+		_, cleanup, err := wiresocks.StartProxy(ctx, l, tnet, bindAddr)
+		if err != nil {
+			l.Error("failed to start proxy listener during rebuild", "error", err)
+			return err
+		}
 
-			pool.AddProxy(newInstance)
-		}()
+		// Create new instance with the cleanup function
+		newInstance := wiresocks.NewProxyInstance(
+			id,
+			index,
+			bindAddr,
+			tnet,
+			proxyConf.GetWeight(),
+			proxyConf.GetMaxConnections(config.MaxConnectionsPerProxy),
+			cleanup,
+		)
+
+		if err := pool.AddProxy(newInstance); err != nil {
+			cleanup() // Cleanup if adding to pool fails
+			return err
+		}
 
 		return nil
 	}

@@ -39,18 +39,22 @@ func StartProxy(ctx context.Context, l *slog.Logger, tnet *netstack.Net, bindAdd
 		return netip.AddrPort{}, nil, err // Return error if binding was unsuccessful
 	}
 
+	// Create a derived context for this proxy instance
+	// This ensures that when we cancel this context, only this proxy's resources are stopped
+	proxyCtx, cancelProxyCtx := context.WithCancel(ctx)
+
 	vt := VirtualTun{
 		Tnet:   tnet,
 		Logger: l.With("subsystem", "vtun"),
 		Dev:    nil,
-		Ctx:    ctx,
+		Ctx:    proxyCtx,
 		pool:   buf.DefaultAllocator,
 	}
 
 	proxy := mixed.NewProxy(
 		mixed.WithListener(ln),
 		mixed.WithLogger(l),
-		mixed.WithContext(ctx),
+		mixed.WithContext(proxyCtx),
 		mixed.WithUserHandler(func(request *statute.ProxyRequest) error {
 			return vt.generalHandler(request)
 		}),
@@ -64,11 +68,12 @@ func StartProxy(ctx context.Context, l *slog.Logger, tnet *netstack.Net, bindAdd
 		_ = ln.Close()
 	}()
 
-	cancel := func() {
-		_ = ln.Close()
+	cleanup := func() {
+		cancelProxyCtx() // Stop VirtualTun and netstack
+		_ = ln.Close()   // Close listener
 	}
 
-	return ln.Addr().(*net.TCPAddr).AddrPort(), cancel, nil
+	return ln.Addr().(*net.TCPAddr).AddrPort(), cleanup, nil
 }
 
 // StartProxyPool starts a proxy pool with multiple SOCKS5 servers
@@ -105,12 +110,12 @@ func StartProxyPool(ctx context.Context, l *slog.Logger, config *ProxyPoolConfig
 		maxConns := proxyConf.GetMaxConnections(config.MaxConnectionsPerProxy)
 
 		// Start SOCKS5 server for this proxy instance
-		// We need to start the listener here to get the cancel function
-		// But StartProxy returns the port, cancel, error.
-		// We need to pass the cancel function to NewProxyInstance.
+		// We need to start the listener here to get the cleanup function
+		// But StartProxy returns the port, cleanup, error.
+		// We need to pass the cleanup function to NewProxyInstance.
 
 		// Start proxy
-		_, cancel, err := StartProxy(ctx, l, tnets[i], bind)
+		_, cleanup, err := StartProxy(ctx, l, tnets[i], bind)
 		if err != nil {
 			if config.ContinueOnError {
 				l.Error("failed to start proxy", "id", proxyID, "error", err)
@@ -119,8 +124,8 @@ func StartProxyPool(ctx context.Context, l *slog.Logger, config *ProxyPoolConfig
 			return nil, err
 		}
 
-		// Create instance with cancel function
-		instance := NewProxyInstance(proxyID, i, bind, tnets[i], proxyConf.GetWeight(), maxConns, cancel)
+		// Create instance with cleanup function
+		instance := NewProxyInstance(proxyID, i, bind, tnets[i], proxyConf.GetWeight(), maxConns, cleanup)
 
 		// We don't need to manually create VirtualTun here anymore as StartProxy does it.
 		// But wait, StartProxyPool was previously creating VirtualTun manually?
@@ -145,7 +150,7 @@ func StartProxyPool(ctx context.Context, l *slog.Logger, config *ProxyPoolConfig
 		// I need to replace the broken block with the correct logic using StartProxy.
 
 		if err := pool.AddProxy(instance); err != nil {
-			cancel()
+			cleanup()
 			return nil, err
 		}
 		l.Info("proxy instance started", "proxy_id", proxyID, "bind", bind)
