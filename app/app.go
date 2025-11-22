@@ -17,6 +17,7 @@ import (
 	"github.com/bepass-org/warp-plus/iputils"
 	"github.com/bepass-org/warp-plus/psiphon"
 	"github.com/bepass-org/warp-plus/warp"
+	"github.com/bepass-org/warp-plus/wireguard/device"
 	"github.com/bepass-org/warp-plus/wireguard/tun"
 	"github.com/bepass-org/warp-plus/wireguard/tun/netstack"
 	"github.com/bepass-org/warp-plus/wiresocks"
@@ -157,6 +158,7 @@ func runWireguard(ctx context.Context, l *slog.Logger, opts WarpOptions) error {
 	var werr error
 	var tnet *netstack.Net
 	var tunDev tun.Device
+	var dev *device.Device
 	for _, t := range []string{"t1", "t2"} {
 		// Create userspace tun network stack
 		tunDev, tnet, werr = netstack.CreateNetTUN(conf.Interface.Addresses, conf.Interface.DNS, conf.Interface.MTU)
@@ -164,7 +166,7 @@ func runWireguard(ctx context.Context, l *slog.Logger, opts WarpOptions) error {
 			continue
 		}
 
-		werr = establishWireguard(l, conf, tunDev, opts.FwMark, t)
+		dev, werr = establishWireguard(l, conf, tunDev, opts.FwMark, t)
 		if werr != nil {
 			continue
 		}
@@ -182,11 +184,11 @@ func runWireguard(ctx context.Context, l *slog.Logger, opts WarpOptions) error {
 
 	// Run a proxy on the userspace stack
 	// Run a proxy on the userspace stack
-	_, cancel, err := wiresocks.StartProxy(ctx, l, tnet, opts.Bind)
+	_, cleanup, err := wiresocks.StartProxy(ctx, l, tnet, dev, opts.Bind)
 	if err != nil {
 		return err
 	}
-	defer cancel()
+	defer cleanup()
 
 	l.Info("serving proxy", "address", opts.Bind)
 
@@ -229,13 +231,14 @@ func runWarp(ctx context.Context, l *slog.Logger, opts WarpOptions, endpoint str
 	var werr error
 	var tnet *netstack.Net
 	var tunDev tun.Device
+	var dev *device.Device
 	for _, t := range []string{"t1", "t2"} {
 		tunDev, tnet, werr = netstack.CreateNetTUN(conf.Interface.Addresses, conf.Interface.DNS, conf.Interface.MTU)
 		if werr != nil {
 			continue
 		}
 
-		werr = establishWireguard(l, &conf, tunDev, opts.FwMark, t)
+		dev, werr = establishWireguard(l, &conf, tunDev, opts.FwMark, t)
 		if werr != nil {
 			continue
 		}
@@ -253,11 +256,11 @@ func runWarp(ctx context.Context, l *slog.Logger, opts WarpOptions, endpoint str
 
 	// Run a proxy on the userspace stack
 	// Run a proxy on the userspace stack
-	_, cancel, err := wiresocks.StartProxy(ctx, l, tnet, opts.Bind)
+	_, cleanup, err := wiresocks.StartProxy(ctx, l, tnet, dev, opts.Bind)
 	if err != nil {
 		return err
 	}
-	defer cancel()
+	defer cleanup()
 
 	l.Info("serving proxy", "address", opts.Bind)
 	return nil
@@ -306,7 +309,7 @@ func runWarpInWarp(ctx context.Context, l *slog.Logger, opts WarpOptions, endpoi
 			continue
 		}
 
-		werr = establishWireguard(l.With("gool", "outer"), &conf, tunDev, opts.FwMark, t)
+		_, werr = establishWireguard(l.With("gool", "outer"), &conf, tunDev, opts.FwMark, t)
 		if werr != nil {
 			continue
 		}
@@ -365,7 +368,8 @@ func runWarpInWarp(ctx context.Context, l *slog.Logger, opts WarpOptions, endpoi
 	}
 
 	// Establish wireguard on userspace stack
-	if err := establishWireguard(l.With("gool", "inner"), &conf, tunDev, opts.FwMark, "t0"); err != nil {
+	dev2, err := establishWireguard(l.With("gool", "inner"), &conf, tunDev, opts.FwMark, "t0")
+	if err != nil {
 		return err
 	}
 
@@ -374,7 +378,7 @@ func runWarpInWarp(ctx context.Context, l *slog.Logger, opts WarpOptions, endpoi
 		return err
 	}
 
-	_, cleanup, err := wiresocks.StartProxy(ctx, l, tnet2, opts.Bind)
+	_, cleanup, err := wiresocks.StartProxy(ctx, l, tnet2, dev2, opts.Bind)
 	if err != nil {
 		return err
 	}
@@ -420,14 +424,14 @@ func runWarpWithPsiphon(ctx context.Context, l *slog.Logger, opts WarpOptions, e
 	var werr error
 	var tnet *netstack.Net
 	var tunDev tun.Device
+	var dev *device.Device
 	for _, t := range []string{"t1", "t2"} {
-		// Create userspace tun network stack
 		tunDev, tnet, werr = netstack.CreateNetTUN(conf.Interface.Addresses, conf.Interface.DNS, conf.Interface.MTU)
 		if werr != nil {
 			continue
 		}
 
-		werr = establishWireguard(l, &conf, tunDev, opts.FwMark, t)
+		dev, werr = establishWireguard(l, &conf, tunDev, opts.FwMark, t)
 		if werr != nil {
 			continue
 		}
@@ -445,7 +449,7 @@ func runWarpWithPsiphon(ctx context.Context, l *slog.Logger, opts WarpOptions, e
 
 	// Run a proxy on the userspace stack
 	// Run a proxy on the userspace stack
-	warpBind, cleanup, err := wiresocks.StartProxy(ctx, l, tnet, netip.MustParseAddrPort("127.0.0.1:0"))
+	warpBind, cleanup, err := wiresocks.StartProxy(ctx, l, tnet, dev, netip.MustParseAddrPort("127.0.0.1:0"))
 	if err != nil {
 		return err
 	}
@@ -548,6 +552,7 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 	type initResult struct {
 		index int
 		tnet  *netstack.Net
+		dev   *device.Device
 		err   error
 	}
 
@@ -558,8 +563,8 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 	// This helps avoid 429 Too Many Requests errors from the API
 	regLimiter := rate.NewLimiter(2, 5)
 
-	// Define initialization function for a single proxy
-	initProxy := func(i int) (*netstack.Net, error) {
+	// initProxy initializes a single proxy and returns the netstack
+	initProxy := func(i int) (*device.Device, *netstack.Net, error) {
 		proxyConf := config.Proxies[i]
 
 		// Create a context with timeout for this initialization
@@ -581,12 +586,12 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 
 		// Wait for rate limiter before attempting registration
 		if err := regLimiter.Wait(initCtx); err != nil {
-			return nil, fmt.Errorf("rate limiter wait failed: %w", err)
+			return nil, nil, fmt.Errorf("rate limiter wait failed: %w", err)
 		}
 
 		ident, err := warp.LoadOrCreateIdentity(l, identPath, opts.License)
 		if err != nil {
-			return nil, fmt.Errorf("couldn't load proxy identity: %w", err)
+			return nil, nil, fmt.Errorf("couldn't load proxy identity: %w", err)
 		}
 
 		conf := generateWireguardConfig(ident)
@@ -605,7 +610,7 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 			if opts.Reserved != "" {
 				r, err := wiresocks.ParseReserved(opts.Reserved)
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				peer.Reserved = r
 			}
@@ -617,12 +622,13 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 		var werr error
 		var tnet *netstack.Net
 		var tunDev tun.Device
+		var dev *device.Device
 
 		// Try t1 then t2
 		for _, t := range []string{"t1", "t2"} {
 			select {
 			case <-initCtx.Done():
-				return nil, initCtx.Err()
+				return nil, nil, initCtx.Err()
 			default:
 			}
 
@@ -631,7 +637,7 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 				continue
 			}
 
-			werr = establishWireguard(l.With("proxy_index", i), &conf, tunDev, opts.FwMark, t)
+			dev, werr = establishWireguard(l.With("proxy_index", i), &conf, tunDev, opts.FwMark, t)
 			if werr != nil {
 				continue
 			}
@@ -645,11 +651,11 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 		}
 
 		if werr != nil {
-			return nil, fmt.Errorf("failed to establish wireguard: %w", werr)
+			return nil, nil, fmt.Errorf("failed to establish wireguard: %w", werr)
 		}
 
 		l.Info("wireguard tunnel established", "proxy_index", i, "endpoint", endpoint)
-		return tnet, nil
+		return dev, tnet, nil
 	}
 
 	// Start workers
@@ -659,8 +665,8 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 		go func() {
 			defer wg.Done()
 			for job := range jobs {
-				tnet, err := initProxy(job.index)
-				results <- initResult{index: job.index, tnet: tnet, err: err}
+				dev, tnet, err := initProxy(job.index)
+				results <- initResult{index: job.index, tnet: tnet, dev: dev, err: err}
 			}
 		}()
 	}
@@ -680,6 +686,7 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 	// Collect results
 	successCount := 0
 	failCount := 0
+	devs := make([]*device.Device, numProxies)
 
 	for res := range results {
 		if res.err != nil {
@@ -691,6 +698,7 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 		} else {
 			successCount++
 			tnets[res.index] = res.tnet
+			devs[res.index] = res.dev
 		}
 
 		// Log progress every 10 completed or when done
@@ -709,7 +717,7 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 	}
 
 	// Start the proxy pool
-	pool, err := wiresocks.StartProxyPool(ctx, l, config, tnets)
+	pool, err := wiresocks.StartProxyPool(ctx, l, config, tnets, devs)
 	if err != nil {
 		return fmt.Errorf("failed to start proxy pool: %w", err)
 	}
@@ -719,7 +727,7 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 		l.Info("rebuilding proxy", "index", index)
 
 		// 1. Initialize new network stack
-		tnet, err := initProxy(index)
+		dev, tnet, err := initProxy(index)
 		if err != nil {
 			return err
 		}
@@ -750,7 +758,7 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 		// Wait a tiny bit to ensure OS releases the port (though Close() should be enough)
 		time.Sleep(10 * time.Millisecond)
 
-		_, cleanup, err := wiresocks.StartProxy(ctx, l, tnet, bindAddr)
+		_, cleanup, err := wiresocks.StartProxy(ctx, l, tnet, dev, bindAddr)
 		if err != nil {
 			l.Error("failed to start proxy listener during rebuild", "error", err)
 			return err

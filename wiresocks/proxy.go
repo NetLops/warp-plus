@@ -33,7 +33,7 @@ type VirtualTun struct {
 var BuffSize = 65536
 
 // StartProxy spawns a socks5 server.
-func StartProxy(ctx context.Context, l *slog.Logger, tnet *netstack.Net, bindAddress netip.AddrPort) (netip.AddrPort, func(), error) {
+func StartProxy(ctx context.Context, l *slog.Logger, tnet *netstack.Net, dev *device.Device, bindAddress netip.AddrPort) (netip.AddrPort, func(), error) {
 	ln, err := net.Listen("tcp", bindAddress.String())
 	if err != nil {
 		return netip.AddrPort{}, nil, err // Return error if binding was unsuccessful
@@ -46,7 +46,7 @@ func StartProxy(ctx context.Context, l *slog.Logger, tnet *netstack.Net, bindAdd
 	vt := VirtualTun{
 		Tnet:   tnet,
 		Logger: l.With("subsystem", "vtun"),
-		Dev:    nil,
+		Dev:    dev,
 		Ctx:    proxyCtx,
 		pool:   buf.DefaultAllocator,
 	}
@@ -77,7 +77,7 @@ func StartProxy(ctx context.Context, l *slog.Logger, tnet *netstack.Net, bindAdd
 }
 
 // StartProxyPool starts a proxy pool with multiple SOCKS5 servers
-func StartProxyPool(ctx context.Context, l *slog.Logger, config *ProxyPoolConfig, tnets []*netstack.Net) (*ProxyPool, error) {
+func StartProxyPool(ctx context.Context, l *slog.Logger, config *ProxyPoolConfig, tnets []*netstack.Net, devs []*device.Device) (*ProxyPool, error) {
 	if !config.Enabled {
 		return nil, nil
 	}
@@ -88,6 +88,10 @@ func StartProxyPool(ctx context.Context, l *slog.Logger, config *ProxyPoolConfig
 
 	if len(tnets) != len(config.Proxies) {
 		return nil, errors.New("number of network stacks must match number of proxies")
+	}
+
+	if len(devs) != len(config.Proxies) {
+		return nil, errors.New("number of devices must match number of proxies")
 	}
 
 	// Create load balancer
@@ -115,7 +119,7 @@ func StartProxyPool(ctx context.Context, l *slog.Logger, config *ProxyPoolConfig
 		// We need to pass the cleanup function to NewProxyInstance.
 
 		// Start proxy
-		_, cleanup, err := StartProxy(ctx, l, tnets[i], bind)
+		_, cleanup, err := StartProxy(ctx, l, tnets[i], devs[i], bind)
 		if err != nil {
 			if config.ContinueOnError {
 				l.Error("failed to start proxy", "id", proxyID, "error", err)
@@ -309,9 +313,7 @@ func (vt *VirtualTun) generalHandlerWithPool(req *statute.ProxyRequest, instance
 
 func (vt *VirtualTun) Stop() {
 	if vt.Dev != nil {
-		if err := vt.Dev.Down(); err != nil {
-			vt.Logger.Warn(err.Error())
-		}
+		vt.Dev.Close()
 	}
 }
 
