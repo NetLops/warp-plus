@@ -135,30 +135,37 @@ func (c *ProxyConfig) GetMaxConnections(globalDefault int) int {
 }
 
 // LoadProxyPoolConfig loads proxy pool configuration from a file
-func LoadProxyPoolConfig(path string) (*ProxyPoolConfig, error) {
-	data, err := os.ReadFile(path)
+// Supports two formats:
+// 1. Standalone proxy pool config (direct ProxyPoolConfig JSON)
+// 2. Full config with "proxy_pool" key (for backward compatibility)
+func LoadProxyPoolConfig(filename string) (*ProxyPoolConfig, error) {
+	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	var config struct {
-		ProxyPool *ProxyPoolConfig `json:"proxy_pool"`
+	// First, try to parse as standalone proxy pool config
+	var poolConfig ProxyPoolConfig
+	if err := json.Unmarshal(data, &poolConfig); err == nil {
+		// Check if this looks like a valid standalone config
+		if poolConfig.Strategy != "" || len(poolConfig.Proxies) > 0 {
+			return &poolConfig, nil
+		}
 	}
 
-	if err := json.Unmarshal(data, &config); err != nil {
+	// If standalone parse failed or looks empty, try parsing as full config with "proxy_pool" key
+	var fullConfig struct {
+		ProxyPool *ProxyPoolConfig `json:"proxy_pool"`
+	}
+	if err := json.Unmarshal(data, &fullConfig); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	if config.ProxyPool == nil {
-		// Return disabled config if not present
-		return &ProxyPoolConfig{Enabled: false}, nil
+	if fullConfig.ProxyPool == nil {
+		return nil, nil // No proxy pool config found
 	}
 
-	if err := config.ProxyPool.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
-	}
-
-	return config.ProxyPool, nil
+	return fullConfig.ProxyPool, nil
 }
 
 // DefaultProxyPoolConfig returns a default proxy pool configuration

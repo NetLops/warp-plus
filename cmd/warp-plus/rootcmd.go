@@ -22,24 +22,25 @@ type rootConfig struct {
 	flags   *ff.FlagSet
 	command *ff.Command
 
-	verbose  bool
-	v4       bool
-	v6       bool
-	bind     string
-	endpoint string
-	key      string
-	dns      string
-	gool     bool
-	psiphon  bool
-	country  string
-	scan     bool
-	rtt      time.Duration
-	cacheDir string
-	fwmark   uint32
-	reserved string
-	wgConf   string
-	testUrl  string
-	config   string
+	verbose    bool
+	v4         bool
+	v6         bool
+	bind       string
+	endpoint   string
+	key        string
+	dns        string
+	gool       bool
+	psiphon    bool
+	country    string
+	scan       bool
+	rtt        time.Duration
+	cacheDir   string
+	fwmark     uint32
+	reserved   string
+	wgConf     string
+	testUrl    string
+	config     string
+	poolConfig string // 独立的代理池配置文件
 }
 
 func newRootCmd() *rootConfig {
@@ -134,6 +135,11 @@ func newRootCmd() *rootConfig {
 		LongName:  "config",
 		Value:     ffval.NewValueDefault(&cfg.config, ""),
 	})
+	cfg.flags.AddFlag(ff.FlagConfig{
+		LongName: "pool-config",
+		Value:    ffval.NewValueDefault(&cfg.poolConfig, ""),
+		Usage:    "path to proxy pool config file (independent from main config)",
+	})
 	cfg.command = &ff.Command{
 		Name:  appName,
 		Flags: cfg.flags,
@@ -204,14 +210,14 @@ func (c *rootConfig) exec(ctx context.Context, args []string) error {
 		opts.Scan = &wiresocks.ScanOptions{V4: c.v4, V6: c.v6, MaxRTT: c.rtt}
 	}
 
-	// Load proxy pool configuration if config file is specified
-	// Note: We load this separately because ff doesn't support nested JSON structures
-	if c.config != "" {
-		poolConfig, err := wiresocks.LoadProxyPoolConfig(c.config)
+	// Load proxy pool configuration from separate pool config file
+	if c.poolConfig != "" {
+		poolConfig, err := wiresocks.LoadProxyPoolConfig(c.poolConfig)
 		if err != nil {
-			// Only warn if it's not a "file not found" or "no proxy_pool section" error
-			l.Debug("proxy pool config not loaded", "error", err)
-		} else if poolConfig != nil && poolConfig.Enabled {
+			l.Error("failed to load proxy pool config", "error", err)
+			return err
+		}
+		if poolConfig != nil && poolConfig.Enabled {
 			l.Info("proxy pool mode enabled",
 				"proxy_count", len(poolConfig.Proxies),
 				"strategy", poolConfig.Strategy)
