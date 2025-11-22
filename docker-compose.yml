@@ -11,7 +11,6 @@ services:
       - "--config=/config/warp-plus.json"
       - "--cache-dir=/var/lib/warp-plus"
       - "--bind=0.0.0.0:8086"
-      - "--test-url="
     volumes:
       - ./compose/config:/config:ro
       - warp-plus-cache:/var/lib/warp-plus
