@@ -19,13 +19,26 @@ type ProxyConfig struct {
 
 // ProxyPoolConfig represents the configuration for the proxy pool
 type ProxyPoolConfig struct {
-	Enabled                bool          `json:"enabled"`
-	Strategy               string        `json:"strategy"`
-	HealthCheckInterval    string        `json:"health_check_interval"`
-	HealthCheckTimeout     string        `json:"health_check_timeout"`
-	MaxConnectionsPerProxy int           `json:"max_connections_per_proxy"`
-	AutoRecover            bool          `json:"auto_recover"`
-	Proxies                []ProxyConfig `json:"proxies"`
+	Enabled                bool   `json:"enabled"`
+	Strategy               string `json:"strategy"`
+	HealthCheckInterval    string `json:"health_check_interval"`
+	HealthCheckTimeout     string `json:"health_check_timeout"`
+	MaxConnectionsPerProxy int    `json:"max_connections_per_proxy"`
+	AutoRecover            bool   `json:"auto_recover"`
+	// Concurrent initialization settings
+	ConcurrentInit  int    `json:"concurrent_init"`   // Number of workers for concurrent init, 0 = auto
+	InitTimeout     string `json:"init_timeout"`      // Timeout for single proxy init
+	ContinueOnError bool   `json:"continue_on_error"` // Continue if some proxies fail
+	// Lifecycle management settings
+	ProxyLifetime string `json:"proxy_lifetime"` // Proxy lifetime duration string
+	RebuildDelay  string `json:"rebuild_delay"`  // Rebuild delay duration string
+
+	// Bulk creation settings
+	NumProxies int    `json:"num_proxies"` // Number of proxies to create automatically
+	StartPort  int    `json:"start_port"`  // Start port for automatic creation
+	BindHost   string `json:"bind_host"`   // Bind host for automatic creation (default: 127.0.0.1)
+
+	Proxies []ProxyConfig `json:"proxies"`
 }
 
 // Validate validates the proxy pool configuration
@@ -63,6 +76,38 @@ func (c *ProxyPoolConfig) Validate() error {
 		}
 	}
 
+	// Validate init timeout
+	if c.InitTimeout != "" {
+		if _, err := time.ParseDuration(c.InitTimeout); err != nil {
+			return fmt.Errorf("invalid init_timeout: %w", err)
+		}
+	}
+
+	// Validate proxy lifetime
+	if c.ProxyLifetime != "" {
+		if _, err := time.ParseDuration(c.ProxyLifetime); err != nil {
+			return fmt.Errorf("invalid proxy_lifetime: %w", err)
+		}
+	}
+
+	// Validate rebuild delay
+	if c.RebuildDelay != "" {
+		if _, err := time.ParseDuration(c.RebuildDelay); err != nil {
+			return fmt.Errorf("invalid rebuild_delay: %w", err)
+		}
+	}
+
+	// Validate bulk creation settings
+	if c.NumProxies > 0 {
+		if c.StartPort <= 0 || c.StartPort > 65535 {
+			return fmt.Errorf("invalid start_port: %d", c.StartPort)
+		}
+		// Check for port overflow
+		if c.StartPort+c.NumProxies-1 > 65535 {
+			return fmt.Errorf("port range overflow: start_port %d + num_proxies %d > 65535", c.StartPort, c.NumProxies)
+		}
+	}
+
 	// Validate each proxy config
 	for i, proxy := range c.Proxies {
 		if err := proxy.Validate(); err != nil {
@@ -89,6 +134,41 @@ func (c *ProxyPoolConfig) GetHealthCheckTimeout() time.Duration {
 	}
 	d, _ := time.ParseDuration(c.HealthCheckTimeout)
 	return d
+}
+
+// GetInitTimeout returns the init timeout as a duration
+func (c *ProxyPoolConfig) GetInitTimeout() time.Duration {
+	if c.InitTimeout == "" {
+		return 30 * time.Second
+	}
+	d, _ := time.ParseDuration(c.InitTimeout)
+	return d
+}
+
+// GetProxyLifetime returns the proxy lifetime as a duration
+func (c *ProxyPoolConfig) GetProxyLifetime() time.Duration {
+	if c.ProxyLifetime == "" {
+		return 0 // 0 means permanent
+	}
+	d, _ := time.ParseDuration(c.ProxyLifetime)
+	return d
+}
+
+// GetRebuildDelay returns the rebuild delay as a duration
+func (c *ProxyPoolConfig) GetRebuildDelay() time.Duration {
+	if c.RebuildDelay == "" {
+		return 10 * time.Second
+	}
+	d, _ := time.ParseDuration(c.RebuildDelay)
+	return d
+}
+
+// GetConcurrentInit returns the number of concurrent init workers
+func (c *ProxyPoolConfig) GetConcurrentInit() int {
+	if c.ConcurrentInit <= 0 {
+		return 0 // 0 means auto
+	}
+	return c.ConcurrentInit
 }
 
 // Validate validates a single proxy configuration
@@ -177,6 +257,14 @@ func DefaultProxyPoolConfig() *ProxyPoolConfig {
 		HealthCheckTimeout:     "5s",
 		MaxConnectionsPerProxy: 1000,
 		AutoRecover:            true,
+		ConcurrentInit:         0,
+		InitTimeout:            "30s",
+		ContinueOnError:        true,
+		ProxyLifetime:          "0",
+		RebuildDelay:           "10s",
+		NumProxies:             0,
+		StartPort:              0,
+		BindHost:               "127.0.0.1",
 		Proxies:                []ProxyConfig{},
 	}
 }

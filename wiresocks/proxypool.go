@@ -17,6 +17,7 @@ import (
 // ProxyInstance represents a single proxy instance in the pool
 type ProxyInstance struct {
 	ID              string
+	Index           int // Index in the configuration array
 	Bind            netip.AddrPort
 	Tnet            *netstack.Net
 	ActiveConns     atomic.Int64
@@ -47,9 +48,10 @@ type LoadBalancer interface {
 }
 
 // NewProxyInstance creates a new proxy instance
-func NewProxyInstance(id string, bind netip.AddrPort, tnet *netstack.Net, weight, maxConns int) *ProxyInstance {
+func NewProxyInstance(id string, index int, bind netip.AddrPort, tnet *netstack.Net, weight, maxConns int) *ProxyInstance {
 	instance := &ProxyInstance{
 		ID:             id,
+		Index:          index,
 		Bind:           bind,
 		Tnet:           tnet,
 		Weight:         weight,

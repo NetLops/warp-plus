@@ -54,7 +54,7 @@ func main() {
 		maxConns := proxyConf.GetMaxConnections(config.MaxConnectionsPerProxy)
 		weight := proxyConf.GetWeight()
 
-		instance := wiresocks.NewProxyInstance(proxyID, bind, nil, weight, maxConns)
+		instance := wiresocks.NewProxyInstance(proxyID, i, bind, nil, weight, maxConns)
 		if err := pool.AddProxy(instance); err != nil {
 			fmt.Printf("❌ Failed to add proxy: %v\n", err)
 			os.Exit(1)

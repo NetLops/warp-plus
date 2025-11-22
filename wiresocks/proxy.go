@@ -100,7 +100,7 @@ func StartProxyPool(ctx context.Context, l *slog.Logger, config *ProxyPoolConfig
 		maxConns := proxyConf.GetMaxConnections(config.MaxConnectionsPerProxy)
 		weight := proxyConf.GetWeight()
 
-		instance := NewProxyInstance(proxyID, bind, tnets[i], weight, maxConns)
+		instance := NewProxyInstance(proxyID, i, bind, tnets[i], weight, maxConns)
 		if err := pool.AddProxy(instance); err != nil {
 			return nil, err
 		}
