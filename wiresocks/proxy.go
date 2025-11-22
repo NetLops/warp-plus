@@ -33,10 +33,10 @@ type VirtualTun struct {
 var BuffSize = 65536
 
 // StartProxy spawns a socks5 server.
-func StartProxy(ctx context.Context, l *slog.Logger, tnet *netstack.Net, bindAddress netip.AddrPort) (netip.AddrPort, error) {
+func StartProxy(ctx context.Context, l *slog.Logger, tnet *netstack.Net, bindAddress netip.AddrPort) (netip.AddrPort, func(), error) {
 	ln, err := net.Listen("tcp", bindAddress.String())
 	if err != nil {
-		return netip.AddrPort{}, err // Return error if binding was unsuccessful
+		return netip.AddrPort{}, nil, err // Return error if binding was unsuccessful
 	}
 
 	vt := VirtualTun{
@@ -61,9 +61,14 @@ func StartProxy(ctx context.Context, l *slog.Logger, tnet *netstack.Net, bindAdd
 	go func() {
 		<-vt.Ctx.Done()
 		vt.Stop()
+		_ = ln.Close()
 	}()
 
-	return ln.Addr().(*net.TCPAddr).AddrPort(), nil
+	cancel := func() {
+		_ = ln.Close()
+	}
+
+	return ln.Addr().(*net.TCPAddr).AddrPort(), cancel, nil
 }
 
 // StartProxyPool starts a proxy pool with multiple SOCKS5 servers
@@ -98,49 +103,52 @@ func StartProxyPool(ctx context.Context, l *slog.Logger, config *ProxyPoolConfig
 
 		proxyID := fmt.Sprintf("proxy-%d", i)
 		maxConns := proxyConf.GetMaxConnections(config.MaxConnectionsPerProxy)
-		weight := proxyConf.GetWeight()
-
-		instance := NewProxyInstance(proxyID, i, bind, tnets[i], weight, maxConns)
-		if err := pool.AddProxy(instance); err != nil {
-			return nil, err
-		}
 
 		// Start SOCKS5 server for this proxy instance
-		ln, err := net.Listen("tcp", bind.String())
+		// We need to start the listener here to get the cancel function
+		// But StartProxy returns the port, cancel, error.
+		// We need to pass the cancel function to NewProxyInstance.
+
+		// Start proxy
+		_, cancel, err := StartProxy(ctx, l, tnets[i], bind)
 		if err != nil {
+			if config.ContinueOnError {
+				l.Error("failed to start proxy", "id", proxyID, "error", err)
+				continue
+			}
 			return nil, err
 		}
 
-		vt := VirtualTun{
-			Tnet:      tnets[i],
-			Logger:    l.With("subsystem", "vtun", "proxy_id", proxyID),
-			Dev:       nil,
-			Ctx:       ctx,
-			pool:      buf.DefaultAllocator,
-			ProxyPool: pool,
+		// Create instance with cancel function
+		instance := NewProxyInstance(proxyID, i, bind, tnets[i], proxyConf.GetWeight(), maxConns, cancel)
+
+		// We don't need to manually create VirtualTun here anymore as StartProxy does it.
+		// But wait, StartProxyPool was previously creating VirtualTun manually?
+		// No, StartProxyPool calls StartProxy.
+		// The previous code I saw in view_file (Step 180) lines 106-112 looked like a fragment of VirtualTun struct.
+		// This suggests that my previous replace_file_content (Step 172) failed to match correctly or I misunderstood the original code.
+
+		// Let's look at the original code from Step 156.
+		// Lines 93-100: loop over proxies.
+		// It seems I need to replace the loop body or the part that was broken.
+
+		// The broken part in Step 180 is:
+		// 106: 			Tnet:      tnets[i],
+		// 107: 			Logger:    l.With("subsystem", "vtun", "proxy_id", proxyID),
+		// ...
+
+		// This looks like it was part of a VirtualTun struct literal that was NOT inside StartProxy, but inside StartProxyPool?
+		// But StartProxyPool (Step 156) calls NewProxyPool and then iterates.
+		// Wait, Step 156 didn't show the full body of the loop in StartProxyPool.
+
+		// Let's assume the code in Step 180 is what is currently in the file.
+		// I need to replace the broken block with the correct logic using StartProxy.
+
+		if err := pool.AddProxy(instance); err != nil {
+			cancel()
+			return nil, err
 		}
-
-		proxy := mixed.NewProxy(
-			mixed.WithListener(ln),
-			mixed.WithLogger(l.With("proxy_id", proxyID)),
-			mixed.WithContext(ctx),
-			mixed.WithUserHandler(func(request *statute.ProxyRequest) error {
-				return vt.generalHandlerWithPool(request, instance)
-			}),
-		)
-
-		go func(proxyID string) {
-			if err := proxy.ListenAndServe(); err != nil {
-				l.Error("proxy server error", "proxy_id", proxyID, "error", err)
-			}
-		}(proxyID)
-
-		go func() {
-			<-ctx.Done()
-			vt.Stop()
-		}()
-
-		l.Info("proxy instance started", "proxy_id", proxyID, "bind", bind.String())
+		l.Info("proxy instance started", "proxy_id", proxyID, "bind", bind)
 	}
 
 	// Start health checker if enabled

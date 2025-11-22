@@ -14,9 +14,9 @@ func TestRoundRobinBalancer(t *testing.T) {
 
 	// Create test instances
 	instances := []*ProxyInstance{
-		NewProxyInstance("proxy-0", mustParseAddrPort("127.0.0.1:8087"), nil, 1, 1000),
-		NewProxyInstance("proxy-1", mustParseAddrPort("127.0.0.1:8088"), nil, 1, 1000),
-		NewProxyInstance("proxy-2", mustParseAddrPort("127.0.0.1:8089"), nil, 1, 1000),
+		NewProxyInstance("proxy-0", 0, mustParseAddrPort("127.0.0.1:8087"), nil, 1, 1000, nil),
+		NewProxyInstance("proxy-1", 1, mustParseAddrPort("127.0.0.1:8088"), nil, 1, 1000, nil),
+		NewProxyInstance("proxy-2", 2, mustParseAddrPort("127.0.0.1:8089"), nil, 1, 1000, nil),
 	}
 
 	// Test round-robin selection
@@ -41,9 +41,9 @@ func TestLeastConnectionsBalancer(t *testing.T) {
 	balancer := NewLeastConnectionsBalancer()
 
 	instances := []*ProxyInstance{
-		NewProxyInstance("proxy-0", mustParseAddrPort("127.0.0.1:8087"), nil, 1, 1000),
-		NewProxyInstance("proxy-1", mustParseAddrPort("127.0.0.1:8088"), nil, 1, 1000),
-		NewProxyInstance("proxy-2", mustParseAddrPort("127.0.0.1:8089"), nil, 1, 1000),
+		NewProxyInstance("proxy-0", 0, mustParseAddrPort("127.0.0.1:8087"), nil, 1, 1000, nil),
+		NewProxyInstance("proxy-1", 1, mustParseAddrPort("127.0.0.1:8088"), nil, 1, 1000, nil),
+		NewProxyInstance("proxy-2", 2, mustParseAddrPort("127.0.0.1:8089"), nil, 1, 1000, nil),
 	}
 
 	// Set different connection counts
@@ -66,8 +66,8 @@ func TestRandomBalancer(t *testing.T) {
 	balancer := NewRandomBalancer()
 
 	instances := []*ProxyInstance{
-		NewProxyInstance("proxy-0", mustParseAddrPort("127.0.0.1:8087"), nil, 1, 1000),
-		NewProxyInstance("proxy-1", mustParseAddrPort("127.0.0.1:8088"), nil, 1, 1000),
+		NewProxyInstance("proxy-0", 0, mustParseAddrPort("127.0.0.1:8087"), nil, 1, 1000, nil),
+		NewProxyInstance("proxy-1", 1, mustParseAddrPort("127.0.0.1:8088"), nil, 1, 1000, nil),
 	}
 
 	// Test random selection
@@ -90,9 +90,9 @@ func TestWeightedRoundRobinBalancer(t *testing.T) {
 	balancer := NewWeightedRoundRobinBalancer()
 
 	instances := []*ProxyInstance{
-		NewProxyInstance("proxy-0", mustParseAddrPort("127.0.0.1:8087"), nil, 1, 1000),
-		NewProxyInstance("proxy-1", mustParseAddrPort("127.0.0.1:8088"), nil, 2, 1000),
-		NewProxyInstance("proxy-2", mustParseAddrPort("127.0.0.1:8089"), nil, 3, 1000),
+		NewProxyInstance("proxy-0", 0, mustParseAddrPort("127.0.0.1:8087"), nil, 1, 1000, nil),
+		NewProxyInstance("proxy-1", 1, mustParseAddrPort("127.0.0.1:8088"), nil, 2, 1000, nil),
+		NewProxyInstance("proxy-2", 2, mustParseAddrPort("127.0.0.1:8089"), nil, 3, 1000, nil),
 	}
 
 	// Test weighted selection
@@ -128,7 +128,7 @@ func TestProxyPool_AddRemoveProxy(t *testing.T) {
 	pool := NewProxyPool(ctx, logger, balancer)
 
 	// Add proxy
-	instance := NewProxyInstance("proxy-0", mustParseAddrPort("127.0.0.1:8087"), nil, 1, 1000)
+	instance := NewProxyInstance("proxy-0", 0, mustParseAddrPort("127.0.0.1:8087"), nil, 1, 1000, nil)
 	err := pool.AddProxy(instance)
 	if err != nil {
 		t.Fatalf("AddProxy failed: %v", err)
@@ -177,8 +177,9 @@ func TestProxyPool_GetNextProxy(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		instance := NewProxyInstance(
 			mustSprintf("proxy-%d", i),
+			i,
 			mustParseAddrPort(mustSprintf("127.0.0.1:%d", 8087+i)),
-			nil, 1, 1000,
+			nil, 1, 1000, nil,
 		)
 		pool.AddProxy(instance)
 	}
@@ -203,8 +204,9 @@ func TestProxyPool_HealthyProxies(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		instance := NewProxyInstance(
 			mustSprintf("proxy-%d", i),
+			i,
 			mustParseAddrPort(mustSprintf("127.0.0.1:%d", 8087+i)),
-			nil, 1, 1000,
+			nil, 1, 1000, nil,
 		)
 		pool.AddProxy(instance)
 	}
@@ -220,7 +222,7 @@ func TestProxyPool_HealthyProxies(t *testing.T) {
 }
 
 func TestProxyInstance_Connections(t *testing.T) {
-	instance := NewProxyInstance("proxy-0", mustParseAddrPort("127.0.0.1:8087"), nil, 1, 10)
+	instance := NewProxyInstance("proxy-0", 0, mustParseAddrPort("127.0.0.1:8087"), nil, 1, 10, nil)
 
 	// Test increment/decrement
 	instance.IncrementActiveConns()
@@ -320,8 +322,9 @@ func TestPoolStats(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		instance := NewProxyInstance(
 			mustSprintf("proxy-%d", i),
+			i,
 			mustParseAddrPort(mustSprintf("127.0.0.1:%d", 8087+i)),
-			nil, 1, 1000,
+			nil, 1, 1000, nil,
 		)
 		instance.IncrementActiveConns()
 		instance.IncrementErrors()

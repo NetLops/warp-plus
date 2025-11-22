@@ -181,10 +181,12 @@ func runWireguard(ctx context.Context, l *slog.Logger, opts WarpOptions) error {
 	}
 
 	// Run a proxy on the userspace stack
-	_, err = wiresocks.StartProxy(ctx, l, tnet, opts.Bind)
+	// Run a proxy on the userspace stack
+	_, cancel, err := wiresocks.StartProxy(ctx, l, tnet, opts.Bind)
 	if err != nil {
 		return err
 	}
+	defer cancel()
 
 	l.Info("serving proxy", "address", opts.Bind)
 
@@ -250,10 +252,12 @@ func runWarp(ctx context.Context, l *slog.Logger, opts WarpOptions, endpoint str
 	}
 
 	// Run a proxy on the userspace stack
-	_, err = wiresocks.StartProxy(ctx, l, tnet, opts.Bind)
+	// Run a proxy on the userspace stack
+	_, cancel, err := wiresocks.StartProxy(ctx, l, tnet, opts.Bind)
 	if err != nil {
 		return err
 	}
+	defer cancel()
 
 	l.Info("serving proxy", "address", opts.Bind)
 	return nil
@@ -370,10 +374,11 @@ func runWarpInWarp(ctx context.Context, l *slog.Logger, opts WarpOptions, endpoi
 		return err
 	}
 
-	_, err = wiresocks.StartProxy(ctx, l, tnet2, opts.Bind)
+	_, cancel, err := wiresocks.StartProxy(ctx, l, tnet2, opts.Bind)
 	if err != nil {
 		return err
 	}
+	defer cancel()
 
 	l.Info("serving proxy", "address", opts.Bind)
 	return nil
@@ -439,10 +444,12 @@ func runWarpWithPsiphon(ctx context.Context, l *slog.Logger, opts WarpOptions, e
 	}
 
 	// Run a proxy on the userspace stack
-	warpBind, err := wiresocks.StartProxy(ctx, l, tnet, netip.MustParseAddrPort("127.0.0.1:0"))
+	// Run a proxy on the userspace stack
+	warpBind, cancel, err := wiresocks.StartProxy(ctx, l, tnet, netip.MustParseAddrPort("127.0.0.1:0"))
 	if err != nil {
 		return err
 	}
+	defer cancel()
 
 	// run psiphon
 	err = psiphon.RunPsiphon(ctx, l.With("subsystem", "psiphon"), warpBind, opts.CacheDir, opts.Bind, opts.Psiphon.Country)
@@ -731,59 +738,27 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 		// Generate ID same as StartProxyPool does
 		id := fmt.Sprintf("proxy-%d", index)
 
-		// Create new instance
-		newInstance := wiresocks.NewProxyInstance(
-			id,
-			index,
-			bindAddr,
-			tnet,
-			proxyConf.GetWeight(),
-			proxyConf.GetMaxConnections(config.MaxConnectionsPerProxy),
-		)
-
-		// Start the proxy listener for the new instance
-		// Note: This is tricky because we need to stop the old listener first if it's still running on the same port
-		// But we want zero downtime.
-		// Ideally, we should have the listener separate from the instance or use SO_REUSEPORT
-		// For now, we will try to stop the old one first.
-
-		_, err = pool.GetProxy(id)
-		if err == nil {
-			// Close old listener/connections
-			// This part requires more access to the running proxy instance to stop it gracefully
-			// The current architecture might need extension to support clean stop of single proxy
-			// For this implementation, we assume we can just swap the Tnet if the bind address is the same
-			// BUT StartProxyPool starts a goroutine that listens on the bind address.
-			// We can't easily replace that without stopping the listener.
-
-			// Workaround: We will implement a "UpdateTnet" method on ProxyInstance if possible,
-			// OR we accept a brief downtime for this specific port.
-
-			// Let's go with: Remove old -> Add new
-			pool.RemoveProxy(id)
-			// We also need to stop the listener associated with the old proxy.
-			// The current StartProxyPool implementation starts listeners but doesn't expose a way to stop them individually easily
-			// except via context. But the context is shared.
-
-			// IMPROVEMENT: We need to make StartProxyPool return something that allows stopping individual proxies
-			// OR we rely on the fact that if we close the listener, we can start a new one.
-		}
-
 		// Start new proxy listener
 		go func() {
-			// We need to start the listener.
-			// The logic from StartProxyPool needs to be accessible here.
-			// We'll duplicate the listener logic for now or refactor StartProxyPool to expose it.
-			// Since we can't easily refactor everything, we'll use wiresocks.StartProxy which is available.
-
 			// Wait a bit for old port to release if needed
 			time.Sleep(100 * time.Millisecond)
 
-			_, err := wiresocks.StartProxy(ctx, l, tnet, bindAddr)
+			_, cancel, err := wiresocks.StartProxy(ctx, l, tnet, bindAddr)
 			if err != nil {
 				l.Error("failed to start proxy listener during rebuild", "error", err)
 				return
 			}
+
+			// Create new instance with the cancel function
+			newInstance := wiresocks.NewProxyInstance(
+				id,
+				index,
+				bindAddr,
+				tnet,
+				proxyConf.GetWeight(),
+				proxyConf.GetMaxConnections(config.MaxConnectionsPerProxy),
+				cancel,
+			)
 
 			pool.AddProxy(newInstance)
 		}()

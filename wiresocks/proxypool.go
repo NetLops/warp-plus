@@ -28,6 +28,7 @@ type ProxyInstance struct {
 	MaxConnections  int
 	CreatedAt       time.Time
 	LastHealthCheck time.Time
+	Cancel          func() // Function to stop the proxy listener
 	mu              sync.RWMutex
 }
 
@@ -48,7 +49,7 @@ type LoadBalancer interface {
 }
 
 // NewProxyInstance creates a new proxy instance
-func NewProxyInstance(id string, index int, bind netip.AddrPort, tnet *netstack.Net, weight, maxConns int) *ProxyInstance {
+func NewProxyInstance(id string, index int, bind netip.AddrPort, tnet *netstack.Net, weight, maxConns int, cancel func()) *ProxyInstance {
 	instance := &ProxyInstance{
 		ID:             id,
 		Index:          index,
@@ -57,6 +58,7 @@ func NewProxyInstance(id string, index int, bind netip.AddrPort, tnet *netstack.
 		Weight:         weight,
 		MaxConnections: maxConns,
 		CreatedAt:      time.Now(),
+		Cancel:         cancel,
 	}
 	instance.Healthy.Store(true)
 	instance.ActiveConns.Store(0)
@@ -144,6 +146,10 @@ func (pp *ProxyPool) RemoveProxy(id string) error {
 
 	for i, p := range pp.instances {
 		if p.ID == id {
+			// Stop the proxy listener
+			if p.Cancel != nil {
+				p.Cancel()
+			}
 			pp.instances = append(pp.instances[:i], pp.instances[i+1:]...)
 			pp.logger.Info("proxy removed from pool", "id", id)
 			return nil
