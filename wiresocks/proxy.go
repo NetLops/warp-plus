@@ -167,6 +167,9 @@ func StartProxyPool(ctx context.Context, l *slog.Logger, config *ProxyPoolConfig
 
 func (vt *VirtualTun) generalHandler(req *statute.ProxyRequest) error {
 	vt.Logger.Debug("handling connection", "protocol", req.Network, "destination", req.Destination)
+	if vt.Tnet == nil {
+		return errors.New("proxy network stack is not initialized")
+	}
 	conn, err := vt.Tnet.Dial(req.Network, req.Destination)
 	if err != nil {
 		return err
@@ -223,6 +226,11 @@ func (vt *VirtualTun) generalHandlerWithPool(req *statute.ProxyRequest, instance
 	// Increment active connections for this proxy
 	instance.IncrementActiveConns()
 	defer instance.DecrementActiveConns()
+
+	if vt.Tnet == nil {
+		instance.IncrementErrors()
+		return errors.New("proxy network stack is not initialized")
+	}
 
 	conn, err := vt.Tnet.Dial(req.Network, req.Destination)
 	if err != nil {

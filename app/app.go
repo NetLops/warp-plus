@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/bepass-org/warp-plus/iputils"
 	"github.com/bepass-org/warp-plus/psiphon"
 	"github.com/bepass-org/warp-plus/warp"
@@ -545,6 +547,10 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 	jobs := make(chan initJob, numProxies)
 	results := make(chan initResult, numProxies)
 
+	// Create rate limiter for identity registration (2 requests per second, burst 5)
+	// This helps avoid 429 Too Many Requests errors from the API
+	regLimiter := rate.NewLimiter(2, 5)
+
 	// Define initialization function for a single proxy
 	initProxy := func(i int) (*netstack.Net, error) {
 		proxyConf := config.Proxies[i]
@@ -565,6 +571,12 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 
 		// Create identity for this proxy
 		identPath := path.Join(opts.CacheDir, fmt.Sprintf("pool-proxy-%d", i))
+
+		// Wait for rate limiter before attempting registration
+		if err := regLimiter.Wait(initCtx); err != nil {
+			return nil, fmt.Errorf("rate limiter wait failed: %w", err)
+		}
+
 		ident, err := warp.LoadOrCreateIdentity(l, identPath, opts.License)
 		if err != nil {
 			return nil, fmt.Errorf("couldn't load proxy identity: %w", err)

@@ -3,6 +3,7 @@ package wiresocks
 import (
 	"context"
 	"log/slog"
+	"math/rand"
 	"sync"
 	"time"
 )
@@ -142,11 +143,14 @@ func (lm *LifecycleManager) TriggerRebuild(proxyID string, proxyIndex int) {
 
 // ScheduleRebuild schedules a rebuild after a delay (for failed proxies)
 func (lm *LifecycleManager) ScheduleRebuild(proxyIndex int) {
+	// Add +/- 20% jitter to rebuild delay to avoid thundering herd
+	jitter := time.Duration(float64(lm.rebuildDelay) * (0.8 + 0.4*rand.Float64()))
+
 	lm.logger.Info("scheduling proxy rebuild",
 		"proxy_index", proxyIndex,
-		"delay", lm.rebuildDelay)
+		"delay", jitter)
 
-	time.AfterFunc(lm.rebuildDelay, func() {
+	time.AfterFunc(jitter, func() {
 		// We don't have the ID here easily, but rebuildFunc will handle the replacement
 		// Ideally we should pass the ID, but for now we rely on index
 		if err := lm.rebuildFunc(proxyIndex); err != nil {
