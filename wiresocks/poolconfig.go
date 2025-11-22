@@ -30,8 +30,9 @@ type ProxyPoolConfig struct {
 	InitTimeout     string `json:"init_timeout"`      // Timeout for single proxy init
 	ContinueOnError bool   `json:"continue_on_error"` // Continue if some proxies fail
 	// Lifecycle management settings
-	ProxyLifetime string `json:"proxy_lifetime"` // Proxy lifetime duration string
-	RebuildDelay  string `json:"rebuild_delay"`  // Rebuild delay duration string
+	ProxyLifetime      string `json:"proxy_lifetime"`      // Proxy lifetime duration string
+	RebuildDelay       string `json:"rebuild_delay"`       // Rebuild delay duration string
+	RebuildConcurrency int    `json:"rebuild_concurrency"` // Max concurrent rebuilds
 
 	// Bulk creation settings
 	NumProxies int    `json:"num_proxies"` // Number of proxies to create automatically
@@ -163,6 +164,14 @@ func (c *ProxyPoolConfig) GetRebuildDelay() time.Duration {
 	return d
 }
 
+// GetRebuildConcurrency returns the max concurrent rebuilds
+func (c *ProxyPoolConfig) GetRebuildConcurrency() int {
+	if c.RebuildConcurrency <= 0 {
+		return 2 // Default to 2
+	}
+	return c.RebuildConcurrency
+}
+
 // GetConcurrentInit returns the number of concurrent init workers
 func (c *ProxyPoolConfig) GetConcurrentInit() int {
 	if c.ConcurrentInit <= 0 {
@@ -262,6 +271,7 @@ func DefaultProxyPoolConfig() *ProxyPoolConfig {
 		ContinueOnError:        true,
 		ProxyLifetime:          "0",
 		RebuildDelay:           "10s",
+		RebuildConcurrency:     2,
 		NumProxies:             0,
 		StartPort:              0,
 		BindHost:               "127.0.0.1",

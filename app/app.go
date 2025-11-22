@@ -773,6 +773,7 @@ func runWarpWithProxyPool(ctx context.Context, l *slog.Logger, opts WarpOptions,
 		rebuildFunc,
 		config.GetProxyLifetime(),
 		config.GetRebuildDelay(),
+		config.GetRebuildConcurrency(),
 	)
 	lifecycleMgr.Start()
 

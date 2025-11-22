@@ -27,6 +27,9 @@ type LifecycleManager struct {
 	// Track rebuilding proxies to avoid duplicate rebuilds
 	rebuildingMu sync.Mutex
 	rebuilding   map[string]bool
+
+	// Semaphore to limit concurrent rebuilds
+	rebuildSemaphore chan struct{}
 }
 
 // NewLifecycleManager creates a new lifecycle manager
@@ -37,18 +40,25 @@ func NewLifecycleManager(
 	rebuildFunc RebuildFunc,
 	lifetime time.Duration,
 	rebuildDelay time.Duration,
+	rebuildConcurrency int,
 ) *LifecycleManager {
 	ctx, cancel := context.WithCancel(ctx)
+
+	if rebuildConcurrency <= 0 {
+		rebuildConcurrency = 2
+	}
+
 	return &LifecycleManager{
-		pool:          pool,
-		logger:        logger.With("subsystem", "lifecycle"),
-		rebuildFunc:   rebuildFunc,
-		lifetime:      lifetime,
-		rebuildDelay:  rebuildDelay,
-		checkInterval: 10 * time.Second, // Check every 10 seconds
-		ctx:           ctx,
-		cancel:        cancel,
-		rebuilding:    make(map[string]bool),
+		pool:             pool,
+		logger:           logger.With("subsystem", "lifecycle"),
+		rebuildFunc:      rebuildFunc,
+		lifetime:         lifetime,
+		rebuildDelay:     rebuildDelay,
+		checkInterval:    10 * time.Second, // Check every 10 seconds
+		ctx:              ctx,
+		cancel:           cancel,
+		rebuilding:       make(map[string]bool),
+		rebuildSemaphore: make(chan struct{}, rebuildConcurrency),
 	}
 }
 
@@ -120,7 +130,14 @@ func (lm *LifecycleManager) TriggerRebuild(proxyID string, proxyIndex int) {
 		"reason", "lifetime_expired")
 
 	// Run rebuild in a separate goroutine
+	// Run rebuild in a separate goroutine
 	go func() {
+		// Acquire semaphore
+		lm.rebuildSemaphore <- struct{}{}
+		defer func() {
+			<-lm.rebuildSemaphore
+		}()
+
 		defer func() {
 			lm.rebuildingMu.Lock()
 			delete(lm.rebuilding, proxyID)
@@ -151,6 +168,12 @@ func (lm *LifecycleManager) ScheduleRebuild(proxyIndex int) {
 		"delay", jitter)
 
 	time.AfterFunc(jitter, func() {
+		// Acquire semaphore
+		lm.rebuildSemaphore <- struct{}{}
+		defer func() {
+			<-lm.rebuildSemaphore
+		}()
+
 		// We don't have the ID here easily, but rebuildFunc will handle the replacement
 		// Ideally we should pass the ID, but for now we rely on index
 		if err := lm.rebuildFunc(proxyIndex); err != nil {
